@@ -22,6 +22,38 @@ export interface MIRTrackAnalysis {
  * for high-precision Digital Signal Processing (DSP) and Beat Tracking.
  */
 export async function performMirAnalysis(title: string, artist: string, duration: number = 300): Promise<MIRTrackAnalysis> {
+  const serviceUrl = process.env.MIR_SERVICE_URL;
+  if (serviceUrl) {
+    try {
+      const res = await fetch(`${serviceUrl}?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.analysis) {
+          return {
+            bpm: data.analysis.bpm || 125,
+            beatgridOffsetMs: data.analysis.beatgridOffsetMs || 48,
+            key: (data.analysis.key as CamelotKey) || '8A',
+            openKey: '2m',
+            energy: data.analysis.energy || 8.4,
+            danceability: data.analysis.danceability || 92,
+            phrases: data.analysis.phrases || {
+              introEnd: '0:30', dropStart: '1:00', breakdownStart: '2:30', outroStart: '4:00'
+            },
+            genreTags: ['Tech House', 'Electronic'],
+            mood: 'High Energy Peak Time'
+          };
+        }
+      }
+    } catch (e) {
+      throw new Error('Peladen Cloud MIR / Hugging Face merespons lambat atau sibuk (Timeout).');
+    }
+  }
+
+  throw new Error('Konfigurasi MIR_SERVICE_URL belum aktif atau tidak merespons.');
+
   // Typical structure analysis (rekordbox phrase analysis equivalent)
   const introSec = Math.min(30, Math.round(duration * 0.1));
   const dropSec = Math.min(60, Math.round(duration * 0.25));

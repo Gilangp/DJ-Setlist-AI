@@ -1,11 +1,6 @@
-import fs from 'fs/promises';
-import path from 'path';
 import { Track, Playlist, Gig } from '@/types/music';
 import { INITIAL_TRACKS, INITIAL_PLAYLISTS, INITIAL_GIGS } from './mock-data';
 import { supabase } from './supabase';
-
-const DATA_DIR = path.join(process.cwd(), '.data');
-const DB_FILE = path.join(DATA_DIR, 'database.json');
 
 interface DatabaseSchema {
   tracks: Track[];
@@ -13,38 +8,12 @@ interface DatabaseSchema {
   gigs: Gig[];
 }
 
-async function ensureDbExists(): Promise<DatabaseSchema> {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    try {
-      const content = await fs.readFile(DB_FILE, 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      const initialDb: DatabaseSchema = {
-        tracks: INITIAL_TRACKS,
-        playlists: INITIAL_PLAYLISTS,
-        gigs: INITIAL_GIGS
-      };
-      await fs.writeFile(DB_FILE, JSON.stringify(initialDb, null, 2), 'utf-8');
-      return initialDb;
-    }
-  } catch (e) {
-    return {
-      tracks: INITIAL_TRACKS,
-      playlists: INITIAL_PLAYLISTS,
-      gigs: INITIAL_GIGS
-    };
-  }
-}
-
-async function saveDb(db: DatabaseSchema): Promise<void> {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
-  } catch (e) {
-    console.error('Failed to save server DB:', e);
-  }
-}
+// In-memory runtime database so no local disk files are ever created or saved
+const inMemoryDb: DatabaseSchema = {
+  tracks: [...INITIAL_TRACKS],
+  playlists: [...INITIAL_PLAYLISTS],
+  gigs: [...INITIAL_GIGS]
+};
 
 export async function getServerTracks(): Promise<Track[]> {
   if (supabase) {
@@ -53,8 +22,7 @@ export async function getServerTracks(): Promise<Track[]> {
       if (!error && data && data.length > 0) return data as Track[];
     } catch {}
   }
-  const db = await ensureDbExists();
-  return db.tracks;
+  return inMemoryDb.tracks;
 }
 
 export async function addServerTrack(track: Track): Promise<Track> {
@@ -63,9 +31,7 @@ export async function addServerTrack(track: Track): Promise<Track> {
       await supabase.from('tracks').upsert(track);
     } catch {}
   }
-  const db = await ensureDbExists();
-  db.tracks = [track, ...db.tracks.filter(t => t.id !== track.id)];
-  await saveDb(db);
+  inMemoryDb.tracks = [track, ...inMemoryDb.tracks.filter(t => t.id !== track.id)];
   return track;
 }
 
@@ -75,9 +41,7 @@ export async function deleteServerTrack(id: string): Promise<boolean> {
       await supabase.from('tracks').delete().eq('id', id);
     } catch {}
   }
-  const db = await ensureDbExists();
-  db.tracks = db.tracks.filter(t => t.id !== id);
-  await saveDb(db);
+  inMemoryDb.tracks = inMemoryDb.tracks.filter(t => t.id !== id);
   return true;
 }
 
@@ -88,8 +52,7 @@ export async function getServerPlaylists(): Promise<Playlist[]> {
       if (!error && data && data.length > 0) return data as Playlist[];
     } catch {}
   }
-  const db = await ensureDbExists();
-  return db.playlists;
+  return inMemoryDb.playlists;
 }
 
 export async function addServerPlaylist(playlist: Playlist): Promise<Playlist> {
@@ -98,9 +61,7 @@ export async function addServerPlaylist(playlist: Playlist): Promise<Playlist> {
       await supabase.from('playlists').upsert(playlist);
     } catch {}
   }
-  const db = await ensureDbExists();
-  db.playlists = [playlist, ...db.playlists.filter(p => p.id !== playlist.id)];
-  await saveDb(db);
+  inMemoryDb.playlists = [playlist, ...inMemoryDb.playlists.filter(p => p.id !== playlist.id)];
   return playlist;
 }
 
@@ -110,9 +71,7 @@ export async function deleteServerPlaylist(id: string): Promise<boolean> {
       await supabase.from('playlists').delete().eq('id', id);
     } catch {}
   }
-  const db = await ensureDbExists();
-  db.playlists = db.playlists.filter(p => p.id !== id);
-  await saveDb(db);
+  inMemoryDb.playlists = inMemoryDb.playlists.filter(p => p.id !== id);
   return true;
 }
 
@@ -123,8 +82,7 @@ export async function getServerGigs(): Promise<Gig[]> {
       if (!error && data && data.length > 0) return data as Gig[];
     } catch {}
   }
-  const db = await ensureDbExists();
-  return db.gigs;
+  return inMemoryDb.gigs;
 }
 
 export async function addServerGig(gig: Gig): Promise<Gig> {
@@ -133,8 +91,6 @@ export async function addServerGig(gig: Gig): Promise<Gig> {
       await supabase.from('gigs').upsert(gig);
     } catch {}
   }
-  const db = await ensureDbExists();
-  db.gigs = [gig, ...db.gigs.filter(g => g.id !== gig.id)];
-  await saveDb(db);
+  inMemoryDb.gigs = [gig, ...inMemoryDb.gigs.filter(g => g.id !== gig.id)];
   return gig;
 }

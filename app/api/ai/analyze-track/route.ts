@@ -29,6 +29,7 @@ Return ONLY valid JSON format:
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(4000),
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
@@ -59,6 +60,7 @@ async function verifyWithHuggingFace(title: string, artist: string): Promise<any
         'Authorization': `Bearer ${hfToken}`,
         'Content-Type': 'application/json'
       },
+      signal: AbortSignal.timeout(4000),
       body: JSON.stringify({
         inputs: `<s>[INST] ${prompt} [/INST]`,
         parameters: { max_new_tokens: 150, temperature: 0.2, return_full_text: false }

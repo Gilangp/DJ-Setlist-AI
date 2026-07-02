@@ -22,6 +22,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   const [isScanning, setIsScanning] = useState(false);
   const [isVerifyingAi, setIsVerifyingAi] = useState(false);
   const [scanStatus, setScanStatus] = useState('Ready for audio upload...');
+  const [cloudWarning, setCloudWarning] = useState<string | null>(null);
   const [scannedTracks, setScannedTracks] = useState<Array<{
     title: string;
     artist: string;
@@ -35,6 +36,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     danceability?: number;
     beatgridOffsetMs?: number;
     phrases?: any;
+    fileUrl?: string;
   }>>([]);
 
   if (!isOpen) return null;
@@ -56,24 +58,25 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   };
 
   const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
     setIsScanning(true);
+    setCloudWarning(null);
     const results: Array<typeof scannedTracks[number]> = [];
+    const batchSize = 1;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setScanStatus(`Menganalisis durasi & audit metadata AI Studio (${i + 1}/${files.length}): ${file.name}`);
+    for (let i = 0; i < files.length; i += batchSize) {
+      const chunk = files.slice(i, i + batchSize);
+      setScanStatus(`Menganalisis gelombang audio Essentia & Madmom (${i + 1}/${files.length}): ${chunk[0]?.name || ''}`);
 
-      try {
+      const batchResults = await Promise.all(chunk.map(async (file) => {
         const duration = await getAudioDuration(file);
         const baseName = file.name.replace(/\.[^/.]+$/, '');
         const parts = baseName.split(' - ');
         const artist = parts.length > 1 ? parts[0].trim() : 'Unknown Artist';
         const title = parts.length > 1 ? parts[1].trim() : baseName.trim();
 
-        // Direct Cloud AI + MIR Bridge Verification
         let aiBpm = 125;
         let aiKey: CamelotKey = '8A';
         let aiGenre = 'Electronic / Club House';
@@ -84,10 +87,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         let isVerified = false;
 
         try {
-          const res = await fetch('/api/ai/analyze-track', {
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('title', title);
+          formData.append('artist', artist);
+
+          const res = await fetch('/api/ai/upload-analyze', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title, artist })
+            signal: AbortSignal.timeout(180000),
+            body: formData
           });
           const data = await res.json();
           if (data.success && data.verified) {
@@ -99,12 +107,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
             aiBeatgridOffsetMs = Number(data.verified.beatgridOffsetMs) || 48;
             aiPhrases = data.verified.phrases;
             isVerified = true;
+          } else {
+            setCloudWarning('Perhatian: Peladen Cloud MIR merespons lambat atau gagal memproses gelombang audio.');
           }
         } catch {
-          // Fallback if cloud offline
+          setCloudWarning('Perhatian: Peladen Cloud MIR merespons lambat (Timeout). Tidak menggunakan kalkulasi lokal sesuai instruksi.');
         }
 
-        results.push({
+        const objectUrl = URL.createObjectURL(file);
+
+        return {
           title,
           artist,
           genre: aiGenre,
@@ -116,11 +128,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           verifiedByAi: isVerified,
           danceability: aiDanceability,
           beatgridOffsetMs: aiBeatgridOffsetMs,
-          phrases: aiPhrases
-        });
-      } catch (err) {
-        console.error('Failed to scan file:', file.name, err);
-      }
+          phrases: aiPhrases,
+          fileUrl: objectUrl
+        };
+      }));
+
+      results.push(...batchResults);
     }
 
     setScannedTracks(prev => [...results, ...prev]);
@@ -189,7 +202,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         rating: 5,
         danceability: t.danceability || 92,
         beatgridOffsetMs: t.beatgridOffsetMs || 48,
-        phrases: t.phrases
+        phrases: t.phrases,
+        fileUrl: t.fileUrl
       });
     });
     setScannedTracks([]);
@@ -216,6 +230,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {cloudWarning && (
+          <div className="mx-6 mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2.5 text-xs text-amber-300">
+            <span className="font-semibold text-amber-400">Peringatan:</span>
+            <span>{cloudWarning}</span>
+          </div>
+        )}
 
         <div className="p-6 space-y-6">
           <input

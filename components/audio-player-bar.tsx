@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Play, Pause, SkipForward, SkipBack } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { formatDuration } from '@/lib/harmonic-mixing';
@@ -14,6 +14,58 @@ interface AudioPlayerBarProps {
 export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({ onOpenHarmonicDeck }) => {
   const { activeTrack, isPlaying, setIsPlaying, tracks, setActiveTrack, t } = useAppStore();
   const [midiDevice, setMidiDevice] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const synthTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (!activeTrack) return;
+    if (activeTrack.fileUrl && audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.play().catch(() => setIsPlaying(false));
+      } else {
+        audioRef.current.pause();
+      }
+    } else if (!activeTrack.fileUrl) {
+      // Web Audio API Groove Synthesizer for sample library tracks without file attachments
+      if (isPlaying) {
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        const ctx = audioCtxRef.current;
+        if (ctx.state === 'suspended') ctx.resume();
+
+        const bpm = activeTrack.bpm || 124;
+        const intervalMs = (60 / bpm) * 1000;
+
+        const playBeat = () => {
+          if (!ctx) return;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.frequency.setValueAtTime(130, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.12);
+
+          gain.gain.setValueAtTime(0.4, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+
+          osc.start();
+          osc.stop(ctx.currentTime + 0.12);
+        };
+
+        playBeat();
+        synthTimerRef.current = setInterval(playBeat, intervalMs);
+      } else {
+        if (synthTimerRef.current) clearInterval(synthTimerRef.current);
+      }
+    }
+
+    return () => {
+      if (synthTimerRef.current) clearInterval(synthTimerRef.current);
+    };
+  }, [isPlaying, activeTrack]);
 
   useEffect(() => {
     midiController.init();
@@ -66,6 +118,13 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({ onOpenHarmonicDe
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 bg-zinc-950 border-t border-zinc-800/80 px-6 py-2.5">
+      {activeTrack.fileUrl && (
+        <audio
+          ref={audioRef}
+          src={activeTrack.fileUrl}
+          onEnded={() => setIsPlaying(false)}
+        />
+      )}
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         
         {/* Track Title & MIDI Status */}
